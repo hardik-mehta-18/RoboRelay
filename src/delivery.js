@@ -85,7 +85,7 @@ export class Delivery {
         }
         if (indexes.length) {
           try {
-            // batchSize 1 sends the plain single-event body, for webhooks other than Rovscope.
+            // batchSize 1 sends the plain single-event body, for generic webhooks.
             const single = this.batchSize === 1;
             const response = await fetch(webhook, {
               method: 'POST',
@@ -101,10 +101,10 @@ export class Delivery {
             const result = single ? await response.body?.cancel().catch(() => {}) : await response.json().catch(() => ({}));
             if (!response.ok) throw new Error('HTTP ' + response.status);
             const rejected = result?.rejected || 0;
-            // Rovscope ignores a replayed id, so skip the receipt write when MQTT isn't also waiting.
+            // Receivers are expected to ignore a replayed id, so skip the receipt write when MQTT isn't also waiting.
             for (const i of indexes) this.outbox.markDelivered(i, webhookKey, Boolean(endpoint));
             progressed = true;
-            if (this.webhook === webhook) this.webhookStatus = rejected ? 'Delivered, but Rovscope rejected ' + rejected + ' invalid reading(s)' : 'Delivered';
+            if (this.webhook === webhook) this.webhookStatus = rejected ? 'Delivered, but the receiver rejected ' + rejected + ' invalid reading(s)' : 'Delivered';
           } catch (error) {
             if (this.webhook === webhook) {
               this.webhookRetryAt = Date.now() + 3000;

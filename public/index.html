@@ -35,13 +35,13 @@ summary{cursor:pointer}
   <section>
     <h2>Webhook delivery</h2>
     <label>Webhook URL <input id="webhookUrl" type="url" placeholder="https://observer.example.com/events"></label>
-    <label>Bearer token <input id="webhookToken" type="password" autocomplete="new-password" placeholder="Paste the robot key from Rovscope"></label>
+    <label>Bearer token <input id="webhookToken" type="password" autocomplete="new-password" placeholder="Optional bearer token"></label>
     <label><input id="clearWebhookToken" type="checkbox"> Clear the saved token</label>
     <small id="webhookTokenNote">Optional. Sent as an Authorization: Bearer header and stored in the agent's local settings.</small>
     <label>Minimum interval per topic (ms) <input id="minIntervalMs" type="number" min="0" max="60000" step="100" required></label>
     <small>Readings from a topic that arrive sooner than this are dropped, keeping only the latest. 1000 keeps about one per second; 0 keeps every message.</small>
     <label>Readings per request <input id="batchSize" type="number" min="1" max="100" required></label>
-    <small>Rovscope accepts batches (up to 100). Use 1 for a generic webhook that expects one plain event per request.</small>
+    <small>Batches of up to 100 are sent as {&quot;events&quot;: [...]}. Use 1 for a generic webhook that expects one plain event per request.</small>
   </section>
   <section>
     <h2>MQTT delivery</h2>
@@ -51,7 +51,7 @@ summary{cursor:pointer}
   </section>
   <section>
     <h2>Discovered ROS 2 nodes and services</h2>
-    <p>Running nodes and the services they offer are reported to Rovscope so it can show what the robot is running. Parameter services are left out.</p>
+    <p>Running nodes and the services they offer are included in a periodic snapshot sent to your destinations. Parameter services are left out.</p>
     <p id="nodes-list"></p>
   </section>
   <section>
@@ -248,7 +248,7 @@ async function refresh() {
     const state = await response.json();
     webhookTokenNote.textContent = state.config.webhookTokenConfigured
       ? 'A token is saved. Leave this field blank to keep it; it is never shown again.'
-      : 'Optional. Paste the robot key from Rovscope; it is sent as a Bearer header and stored locally.';
+      : 'Optional. Sent as a Bearer header and stored locally.';
     if (!initialized) {
       endpoint.value = state.config.endpoint;
       webhookUrl.value = state.config.webhookUrl || '';

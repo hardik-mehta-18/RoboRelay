@@ -92,7 +92,7 @@ function refresh() {
 }
 
 // Node and service snapshot: sent as a reserved event when either list changes, and
-// every minute as a heartbeat. Rovscope stores it as the robot's current lists.
+// every minute as a heartbeat. Receivers can store it as the robot's current lists.
 const NODE_HEARTBEAT_MS = 60000;
 // Every ROS node serves these; listing them would bury the services a robot offers.
 const PARAMETER_SERVICE = /\/(get_parameters|get_parameter_types|set_parameters|set_parameters_atomically|list_parameters|describe_parameters|get_type_description)$/;
@@ -111,14 +111,14 @@ function refreshNodes() {
     .filter(({ name }) => !PARAMETER_SERVICE.test(name) && !name.split('/').some(part => part.startsWith('_')))
     .map(({ name, types }) => ({ name, type: types[0] || '' }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  // Every topic with a publisher, and whether it is being forwarded. Rovscope picks the sensors out of it.
+  // Every topic with a publisher, and whether it is being forwarded. Receivers can pick the sensors out of it.
   const discovered = topics.map(({ name, type, id }) => ({ name, type, forwarded: config.selected.includes(id) }));
   const key = nodes.join('\n') + '\n\u0000' + services.map(s => s.name + ' ' + s.type).join('\n') +
     '\n\u0000' + discovered.map(t => t.name + ' ' + t.type + ' ' + t.forwarded).join('\n');
   const due = key !== nodesSentKey || Date.now() - nodesSentAt >= NODE_HEARTBEAT_MS;
   if (!due || !(config.webhookUrl || config.endpoint)) return;
   try {
-    outbox.append({ agentId, topic: '/rovscope/nodes', type: 'rovscope/NodeList',
+    outbox.append({ agentId, topic: '/roborelay/nodes', type: 'roborelay/NodeList',
       receivedAt: new Date().toISOString(), message: { nodes, services, topics: discovered } });
     nodesSentKey = key;
     nodesSentAt = Date.now();
