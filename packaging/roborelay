@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -eo pipefail
+set -a
+source /etc/roborelay/agent.env
+set +a
+source "${ROS_SETUP:-/opt/ros/lyrical/setup.bash}"
+if [[ -n "${ROS_OVERLAY:-}" ]]; then
+  source "$ROS_OVERLAY"
+fi
+cd /var/lib/roborelay
+exec /opt/roborelay/runtime/node /opt/roborelay/src/index.js

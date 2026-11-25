@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  if ! getent passwd roborelay >/dev/null; then
+    adduser --system --group --home /var/lib/roborelay --no-create-home roborelay
+  fi
+  install -d -m 0700 -o roborelay -g roborelay /var/lib/roborelay
+  chown root:roborelay /etc/roborelay/agent.env
+  chmod 0640 /etc/roborelay/agent.env
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    deb-systemd-helper enable roborelay.service >/dev/null
+    deb-systemd-invoke restart roborelay.service
+  fi
+fi

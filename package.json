@@ -1,0 +1,21 @@
+{
+  "name": "roborelay",
+  "version": "0.1.6",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.20.2"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.15.0",
+    "rclnodejs": "2.2.0"
+  },
+  "allowScripts": {
+    "rclnodejs@2.2.0": true,
+    "es5-ext@0.10.64": true
+  }
+}

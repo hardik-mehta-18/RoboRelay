@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoboRelay</title>
+<style>
+body{font:16px system-ui;color:#182821;background:#f4f6f4;margin:2rem auto;padding:0 1rem;max-width:900px}
+section{background:white;border:1px solid #d6dfd9;padding:1.2rem;margin:1rem 0;border-radius:8px}
+label{display:block;margin:.6rem 0} input:not([type=checkbox]){display:block;width:min(100%,36rem);box-sizing:border-box;padding:.5rem}
+button{padding:.55rem 1rem;background:#164e39;color:white;border:0;border-radius:4px}
+button{cursor:pointer} button:disabled{opacity:.5;cursor:default}
+input,select,button{font:inherit}
+select{padding:.5rem;border:1px solid #aebdb4;border-radius:4px;background:white;color:inherit}
+.topic-controls,.topic-pagination,.page-buttons{display:flex;flex-wrap:wrap;align-items:end;gap:.75rem}
+.topic-controls label{margin:0}.topic-controls select{display:block;margin-top:.3rem}
+.topic-search{flex:1;min-width:12rem}.topic-search input{margin-top:.3rem}
+.topic-pagination{justify-content:space-between;align-items:center;margin-top:1rem}
+.page-buttons{align-items:center} .page-buttons button{background:white;color:#164e39;border:1px solid #aebdb4}
+#topic-count{margin:.8rem 0;font-size:.9rem;color:#42574d}
+:focus-visible{outline:2px solid #164e39;outline-offset:3px}
+small{color:#42574d} .topic{padding:.4rem 0;border-bottom:1px solid #e2e7e4;overflow-wrap:anywhere}
+.topic-meta,.payload-fields{margin-left:1.5rem}
+.topic-meta{display:block;margin-top:-.35rem}
+.payload-fields{margin-top:.75rem;margin-bottom:.8rem;border:1px solid #d6dfd9;border-radius:4px}
+.field-options{display:flex;flex-wrap:wrap;gap:0 1rem}
+.field-tree{border:0;margin:.2rem 0 .2rem .6rem;padding:0 .5rem;min-width:0;border-left:1px solid #d6dfd9}
+.field-tree label{margin:.3rem 0}
+.field-branch{display:flex;align-items:flex-start;gap:.3rem;margin:.3rem 0}
+.field-branch details{flex:1;min-width:0}
+summary{cursor:pointer}
+</style>
+<h1>RoboRelay</h1>
+<p id="status" role="status">Connecting to agent…</p>
+<form id="settings">
+  <section>
+    <h2>Webhook delivery</h2>
+    <label>Webhook URL <input id="webhookUrl" type="url" placeholder="https://observer.example.com/events"></label>
+    <label>Bearer token <input id="webhookToken" type="password" autocomplete="new-password" placeholder="Paste the robot key from Rovscope"></label>
+    <label><input id="clearWebhookToken" type="checkbox"> Clear the saved token</label>
+    <small id="webhookTokenNote">Optional. Sent as an Authorization: Bearer header and stored in the agent's local settings.</small>
+    <label>Minimum interval per topic (ms) <input id="minIntervalMs" type="number" min="0" max="60000" step="100" required></label>
+    <small>Readings from a topic that arrive sooner than this are dropped, keeping only the latest. 1000 keeps about one per second; 0 keeps every message.</small>
+    <label>Readings per request <input id="batchSize" type="number" min="1" max="100" required></label>
+    <small>Rovscope accepts batches (up to 100). Use 1 for a generic webhook that expects one plain event per request.</small>
+  </section>
+  <section>
+    <h2>MQTT delivery</h2>
+    <label>Broker URL <input id="endpoint" placeholder="mqtts://broker.example.com:8883"></label>
+    <label>MQTT topic <input id="mqttTopic" required></label>
+    <small>MQTT is optional. Pending readings go to the currently configured destinations.</small>
+  </section>
+  <section>
+    <h2>Discovered ROS 2 nodes and services</h2>
+    <p>Running nodes and the services they offer are reported to Rovscope so it can show what the robot is running. Parameter services are left out.</p>
+    <p id="nodes-list"></p>
+  </section>
+  <section>
+    <h2>Discovered ROS 2 topics</h2>
+    <p>Select the topics to forward, then choose which message fields to send.</p>
+    <div class="topic-controls">
+      <label class="topic-search">Search topics
+        <input id="topic-search" type="search" placeholder="Topic name or ROS message type" aria-controls="topics" autocomplete="off">
+      </label>
+      <label>Selection
+        <select id="topic-filter" aria-controls="topics">
+          <option value="all">All topics</option>
+          <option value="selected">Selected</option>
+          <option value="unselected">Not selected</option>
+        </select>
+      </label>
+      <label>Per page
+        <select id="topic-page-size" aria-controls="topics">
+          <option value="10">10</option>
+          <option value="25">25</option>
+          <option value="50">50</option>
+        </select>
+      </label>
+    </div>
+    <p id="topic-count" role="status" aria-live="polite"></p>
+    <div id="topics"></div>
+    <p id="topics-empty" hidden></p>
+    <nav class="topic-pagination" aria-label="Topic pagination">
+      <small id="topic-page" aria-live="polite">Page 1 of 1</small>
+      <div class="page-buttons">
+        <button id="topics-previous" type="button" disabled>Previous</button>
+        <button id="topics-next" type="button" disabled>Next</button>
+      </div>
+    </nav>
+  </section>
+  <button id="save-settings" type="submit" disabled>Save settings</button> <span id="feedback" role="status"></span>
+</form>
+<script type="module">
+const form = document.querySelector('#settings');
+const endpoint = document.querySelector('#endpoint');
+const webhookUrl = document.querySelector('#webhookUrl');
+const webhookToken = document.querySelector('#webhookToken');
+const clearWebhookToken = document.querySelector('#clearWebhookToken');
+const webhookTokenNote = document.querySelector('#webhookTokenNote');
+const mqttTopic = document.querySelector('#mqttTopic');
+const list = document.querySelector('#topics');
+const status = document.querySelector('#status');
+const feedback = document.querySelector('#feedback');
+const saveButton = document.querySelector('#save-settings');
+const topicSearch = document.querySelector('#topic-search');
+const topicFilter = document.querySelector('#topic-filter');
+const topicPageSize = document.querySelector('#topic-page-size');
+const topicCount = document.querySelector('#topic-count');
+const topicPage = document.querySelector('#topic-page');
+const topicsEmpty = document.querySelector('#topics-empty');
+const topicsPrevious = document.querySelector('#topics-previous');
+const topicsNext = document.querySelector('#topics-next');
+const nodesList = document.querySelector('#nodes-list');
+const minIntervalMs = document.querySelector('#minIntervalMs');
+const batchSize = document.querySelector('#batchSize');
+const selected = new Set();
+const omitted = new Map();
+const rows = new Map();
+const metadata = ['id', 'agentId', 'topic', 'type', 'receivedAt'];
+let initialized = false;
+let currentPage = 1;
+
+function renderTopics() {
+  const query = topicSearch.value.trim().toLowerCase();
+  const matching = [...rows].filter(([id, entry]) =>
+    (entry.topic.name + ' ' + entry.topic.type).toLowerCase().includes(query) &&
+    (topicFilter.value === 'all' || selected.has(id) === (topicFilter.value === 'selected'))
+  ).sort(([a], [b]) => a.localeCompare(b));
+  const pageSize = Number(topicPageSize.value);
+  const pageCount = Math.max(1, Math.ceil(matching.length / pageSize));
+  currentPage = Math.min(currentPage, pageCount);
+  const start = (currentPage - 1) * pageSize;
+  const visibleRows = matching.slice(start, start + pageSize).map(([, entry]) => entry.row);
+  // Keep existing DOM nodes (including unsaved fields and expanded details).
+  // Avoid moving them on status polls when the visible page hasn't changed.
+  if (list.children.length !== visibleRows.length || visibleRows.some((row, index) => list.children[index] !== row)) {
+    list.replaceChildren(...visibleRows);
+  }
+  const countText = (matching.length ? (start + 1) + '–' + Math.min(start + pageSize, matching.length) : '0') +
+    ' of ' + matching.length + (query || topicFilter.value !== 'all' ? ' matching topics (' + rows.size + ' total)' : ' topics') +
+    ' · ' + selected.size + ' selected across all pages';
+  if (topicCount.textContent !== countText) topicCount.textContent = countText;
+  const pageText = 'Page ' + currentPage + ' of ' + pageCount;
+  if (topicPage.textContent !== pageText) topicPage.textContent = pageText;
+  topicsPrevious.disabled = currentPage <= 1;
+  topicsNext.disabled = currentPage >= pageCount;
+  topicsEmpty.hidden = matching.length > 0;
+  topicsEmpty.textContent = rows.size ? 'No topics match your search and selection filter.' : 'No ROS topics discovered yet.';
+}
+
+for (const control of [topicSearch, topicFilter, topicPageSize]) {
+  control.addEventListener(control === topicSearch ? 'input' : 'change', () => {
+    currentPage = 1;
+    renderTopics();
+  });
+}
+topicSearch.addEventListener('keydown', event => {
+  if (event.key === 'Enter') event.preventDefault();
+});
+topicsPrevious.addEventListener('click', () => { currentPage--; renderTopics(); });
+topicsNext.addEventListener('click', () => { currentPage++; renderTopics(); });
+
+clearWebhookToken.addEventListener('change', () => {
+  webhookToken.disabled = clearWebhookToken.checked;
+});
+
+function fieldCheckbox(id, path) {
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = !omitted.get(id)?.has(path);
+  input.addEventListener('change', () => {
+    const excluded = omitted.get(id) || new Set();
+    if (input.checked) excluded.delete(path);
+    else excluded.add(path);
+    omitted.set(id, excluded);
+    feedback.textContent = '';
+  });
+  return input;
+}
+
+function fieldTree(id, prefix, fields) {
+  const tree = document.createElement('fieldset');
+  tree.className = 'field-tree';
+  tree.setAttribute('aria-label', prefix);
+  for (const field of fields) {
+    const path = prefix + '.' + field.name;
+    const checkbox = fieldCheckbox(id, path);
+    if (field.children?.length) {
+      const branch = document.createElement('div');
+      branch.className = 'field-branch';
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = field.name;
+      const children = fieldTree(id, path, field.children);
+      children.disabled = !checkbox.checked;
+      checkbox.setAttribute('aria-label', 'Send ' + path);
+      checkbox.addEventListener('change', () => { children.disabled = !checkbox.checked; });
+      details.append(summary, children);
+      branch.append(checkbox, details);
+      tree.append(branch);
+    } else {
+      const label = document.createElement('label');
+      label.append(checkbox, ' ', field.name, field.array ? ' (array)' : '');
+      tree.append(label);
+    }
+  }
+  return tree;
+}
+
+function payloadOptions(id, fields) {
+  const group = document.createElement('fieldset');
+  group.className = 'payload-fields';
+  group.hidden = !selected.has(id);
+  const legend = document.createElement('legend');
+  legend.textContent = 'Payload';
+  const message = fieldCheckbox(id, 'message');
+  const label = document.createElement('label');
+  label.append(message, ' Send message data');
+  group.append(legend, label);
+  if (fields?.length) {
+    const tree = fieldTree(id, 'message', fields);
+    tree.disabled = !message.checked;
+    message.addEventListener('change', () => { tree.disabled = !message.checked; });
+    group.append(tree);
+  } else {
+    const note = document.createElement('small');
+    note.textContent = fields === null ? 'Waiting for a message to list fields.' : 'This message type has no fields.';
+    group.append(note);
+  }
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Bridge metadata';
+  const options = document.createElement('div');
+  options.className = 'field-options';
+  for (const field of metadata) {
+    const label = document.createElement('label');
+    label.append(fieldCheckbox(id, field), ' ', field);
+    options.append(label);
+  }
+  details.append(summary, options);
+  group.append(details);
+  return group;
+}
+
+async function refresh() {
+  try {
+    const response = await fetch('/api/status');
+    if (!response.ok) throw new Error('Agent returned ' + response.status);
+    const state = await response.json();
+    webhookTokenNote.textContent = state.config.webhookTokenConfigured
+      ? 'A token is saved. Leave this field blank to keep it; it is never shown again.'
+      : 'Optional. Paste the robot key from Rovscope; it is sent as a Bearer header and stored locally.';
+    if (!initialized) {
+      endpoint.value = state.config.endpoint;
+      webhookUrl.value = state.config.webhookUrl || '';
+      mqttTopic.value = state.config.mqttTopic;
+      minIntervalMs.value = state.config.minIntervalMs ?? 1000;
+      batchSize.value = state.config.batchSize ?? 50;
+      state.config.selected.forEach(id => selected.add(id));
+      for (const [id, paths] of Object.entries(state.config.omitFields || {})) {
+        omitted.set(id, new Set(paths));
+      }
+      initialized = true;
+      saveButton.disabled = false;
+    }
+    status.textContent = 'ROS domain ' + state.domain + ' · ' + state.queued +
+      ' queued · Webhook ' + state.webhook + ' · MQTT ' + state.delivery +
+      (state.storageError ? ' · Storage: ' + state.storageError : '');
+    nodesList.textContent = (state.nodes.length ? state.nodes.join(', ') : 'No ROS 2 nodes discovered yet.') +
+      ' · ' + state.services.length + ' service(s) reported';
+    const visible = new Map(state.topics.map(topic => [topic.id, topic]));
+    for (const id of new Set([...state.config.selected, ...selected])) {
+      if (!visible.has(id)) {
+        const [name, type] = id.split(' ');
+        visible.set(id, { name, type, missing: true });
+      }
+    }
+    for (const [id, { row }] of rows) {
+      if (visible.has(id) || selected.has(id)) continue;
+      row.remove();
+      rows.delete(id);
+    }
+    for (const [id, topic] of visible) {
+      const fields = state.fields[id] ?? null;
+      const detail = state.failures[id] || (topic.missing ? 'No publisher found' : state.active.includes(id) ? 'Listening' : '');
+      const meta = topic.type + (detail ? ' · ' + detail : '');
+      const signature = JSON.stringify(fields);
+      const existing = rows.get(id);
+      if (existing) {
+        existing.topic = topic;
+        existing.caption.textContent = meta;
+        if (existing.signature !== signature) {
+          const payload = payloadOptions(id, fields);
+          existing.payload.replaceWith(payload);
+          Object.assign(existing, { payload, signature });
+        }
+        continue;
+      }
+      const row = document.createElement('div');
+      row.className = 'topic';
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      const payload = payloadOptions(id, fields);
+      const caption = document.createElement('small');
+      caption.className = 'topic-meta';
+      caption.textContent = meta;
+      const entry = { row, caption, payload, signature, topic };
+      input.type = 'checkbox';
+      input.checked = selected.has(id);
+      input.addEventListener('change', () => {
+        if (input.checked) selected.add(id);
+        else selected.delete(id);
+        entry.payload.hidden = !input.checked;
+        feedback.textContent = '';
+        renderTopics();
+      });
+      label.append(input, ' ', topic.name);
+      row.append(label, caption, payload);
+      rows.set(id, entry);
+    }
+    renderTopics();
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+form.addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = saveButton;
+  button.disabled = true;
+  try {
+    const omitFields = Object.fromEntries([...omitted]
+      .filter(([, paths]) => paths.size).map(([id, paths]) => [id, [...paths]]));
+    const settings = {endpoint: endpoint.value.trim(), webhookUrl: webhookUrl.value.trim(),
+      mqttTopic: mqttTopic.value.trim(), selected: [...selected], omitFields,
+      clearWebhookToken: clearWebhookToken.checked,
+      minIntervalMs: Number(minIntervalMs.value), batchSize: Number(batchSize.value)};
+    if (webhookToken.value.trim()) settings.webhookToken = webhookToken.value.trim();
+    const response = await fetch('/api/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    webhookToken.value = '';
+    clearWebhookToken.checked = false;
+    webhookToken.disabled = false;
+    feedback.textContent = 'Saved';
+  } catch (error) {
+    feedback.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+refresh();
+setInterval(refresh, 2000);
+</script>
+</html>

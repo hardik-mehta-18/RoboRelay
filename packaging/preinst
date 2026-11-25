@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+if [ "$1" = install ] || [ "$1" = upgrade ]; then
+  . /etc/os-release
+  if [ "$ID" != ubuntu ] || [ "$VERSION_ID" != 26.04 ]; then
+    echo 'This package requires Ubuntu 26.04 and ROS 2 Lyrical.' >&2
+    exit 1
+  fi
+fi

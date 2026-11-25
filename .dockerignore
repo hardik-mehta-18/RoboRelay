@@ -1,0 +1,7 @@
+.env
+.git
+node_modules
+data
+infra
+README.md
+run.sh
